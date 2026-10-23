@@ -229,6 +229,10 @@ local function returnToSaved()
 		holdAt(State.saved)
 		log("returned to saved position, holding for " .. State.holdSeconds .. "s")
 	end
+	-- the ability has been used: let the menu switch it off if it is a one-shot (set once the menu exists)
+	if State.onUseDone then
+		State.onUseDone(State.profile)
+	end
 end
 
 local function teleportToTarget(profile)
@@ -348,6 +352,7 @@ local Profiles = {
 	swift = {
 		name = "Swift Kick",
 		bind = { Value = "One" }, -- fixed: Swift Kick is on key 1
+		oneShot = true, -- switches itself off after one use
 		moveset = "Todo",
 		remote = effectsRemote("SwiftKickService"),
 		startStage = "Start",
@@ -362,6 +367,7 @@ local Profiles = {
 	cursed = {
 		name = "Cursed Strikes",
 		bind = { Value = "One" }, -- fixed: Cursed Strikes is on key 1
+		oneShot = true, -- switches itself off after one use
 		moveset = "Itadori", -- Vessel / Yuji
 		remote = effectsRemote("CursedStrikesService"),
 		-- The lunge grabs about 0.6s after the cast, decided almost at once (the grab lands 0.03s after the Dash),
@@ -585,9 +591,9 @@ local TargetTab = Window:Tab({ Title = "Target", Icon = "crosshair" })
 
 -- Every setting below is fixed to the values I tested; there is nothing to tune. Each ability only
 -- reacts while you are on its character.
-MainTab:Toggle({
+local SwiftToggle = MainTab:Toggle({
 	Title = "Swift Kick",
-	Desc = "Todo, key 1",
+	Desc = "Todo, key 1. Turns off after one use.",
 	Value = true,
 	Callback = function(v)
 		Profiles.swift.enabled = v
@@ -595,15 +601,26 @@ MainTab:Toggle({
 	end,
 })
 
-MainTab:Toggle({
+local CursedToggle = MainTab:Toggle({
 	Title = "Cursed Strikes",
-	Desc = "Vessel, key 1",
+	Desc = "Vessel, key 1. Turns off after one use.",
 	Value = true,
 	Callback = function(v)
 		Profiles.cursed.enabled = v
 		log("menu: Cursed Strikes enabled=" .. tostring(v))
 	end,
 })
+
+-- one-shot abilities switch themselves off after a use, silently (the switch flipping is the feedback)
+State.onUseDone = function(profile)
+	if not (profile and profile.oneShot) then return end
+	profile.enabled = false
+	local toggle = (profile == Profiles.swift and SwiftToggle) or (profile == Profiles.cursed and CursedToggle) or nil
+	if toggle then
+		pcall(function() toggle:Set(false) end)
+	end
+	log(profile.name .. ": switched off after use")
+end
 
 MainTab:Paragraph({
 	Title = "Rapid Punches",
@@ -745,9 +762,6 @@ connect(UserInputService.InputBegan, function(input)
 	if UserInputService:GetFocusedTextBox() then return end
 	-- the ability key saves your position and tells the matching profile it is the one in progress
 	local profile = profileForCurrentMoveset()
-	if profile and not profile.enabled and not profile.comingSoon and profile.bind and input.KeyCode.Name == profile.bind.Value then
-		notify(profile.name, "Switched off in the menu, turn it on in the Main tab.")
-	end
 	if profile and profile.enabled and profile.bind and input.KeyCode.Name == profile.bind.Value then
 		-- a teleport is already in progress: repeated presses (spamming the key) must not re-save the
 		-- position at the target
